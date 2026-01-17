@@ -1,168 +1,199 @@
 #!/bin/bash
 
-# အရောင်သတ်မှတ်ချက်များ
-RED='\033[1;31m'
-GREEN='\033[1;32m'
+# --- DEPENDENCY CHECK ---
+if ! command -v netstat &> /dev/null; then
+    apt update -y &> /dev/null
+    apt install net-tools -y &> /dev/null
+fi
+
+# Colors
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+RED='\033[0;31m'
 YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
-PURPLE='\033[1;35m'
-CYAN='\033[1;36m'
 WHITE='\033[1;37m'
+BLUE='\033[1;34m'
 NC='\033[0m'
 
-# Root Check
-[[ "$(whoami)" != "root" ]] && { echo -e "${RED}Error: Root user ဖြင့်သာ run ပါ။${NC}"; exit 1; }
+# --- CONFIGURATION & DATABASE ---
+CONFIG_FILE="/etc/evt_config"
+USER_DB="/etc/evt_users.db"
+[ ! -f "$USER_DB" ] && touch "$USER_DB"
 
-# --- လက်ရှိ Port များကို ဖမ်းယူပြသရန် Function များ ---
-get_ssh_ports() { grep -i "^Port" /etc/ssh/sshd_config | awk '{print $2}' | xargs || echo "22"; }
-
-get_dropbear_ports() { 
-    p1=$(grep "DROPBEAR_PORT" /etc/default/dropbear 2>/dev/null | cut -d'=' -f2 | sed 's/"//g')
-    p2=$(grep "DROPBEAR_EXTRA_ARGS" /etc/default/dropbear 2>/dev/null | grep -oE "\-p [0-9]+" | awk '{print $2}' | xargs)
-    echo "$p1 $p2"
-}
-
-get_squid_ports() { grep -i "^http_port" /etc/squid/squid.conf 2>/dev/null | awk '{print $2}' | xargs || echo "None"; }
-
-get_ws_port() {
-    if [[ -f "/etc/systemd/system/ws.service" ]]; then
-        grep "ExecStart" /etc/systemd/system/ws.service | grep -oE '[0-9]+$' || echo "None"
-    else
-        echo "None"
-    fi
-}
-
-# SSL Tunnel port များကို ဖမ်းယူရန်
-get_stunnel_ports() {
-    if [[ -f "/etc/stunnel/stunnel.conf" ]]; then
-        grep -i "^accept" /etc/stunnel/stunnel.conf | cut -d'=' -f2 | xargs || echo "None"
-    else
-        echo "None"
-    fi
-}
-
-# --- UI Header ---
-header() {
+# --- INITIAL SETUP ---
+if [ ! -f "$CONFIG_FILE" ]; then
     clear
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "              ${WHITE}CONNECTION MODE MANAGER${NC}"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}SERVICE:${NC} ${YELLOW}OPENSSH PORT:${NC} $(get_ssh_ports)"
-    echo -e "${GREEN}SERVICE:${NC} ${YELLOW}PROXY SOCKS PORT:${NC} $(get_ws_port)"
-    echo -e "${GREEN}SERVICE:${NC} ${YELLOW}DROPBEAR PORT:${NC} $(get_dropbear_ports)"
-    echo -e "${GREEN}SERVICE:${NC} ${YELLOW}SQUID PORT:${NC} $(get_squid_ports)"
-    echo -e "${GREEN}SERVICE:${NC} ${YELLOW}SSL TUNNEL PORT:${NC} $(get_stunnel_ports)"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}=====================================================${NC}"
+    echo -e "${YELLOW}           -- INITIAL SERVER SETUP --${NC}"
+    echo -e "${CYAN}=====================================================${NC}"
+    read -p " ◇ Enter your DOMAIN (Default: evtvip.com): " input_dom
+    read -p " ◇ Enter your NAMESERVER (Default: ns.evtvip.com): " input_ns
+    [ -z "$input_dom" ] && input_dom="evtvip.com"
+    [ -z "$input_ns" ] && input_ns="ns.evtvip.com"
+    echo "DOMAIN=\"$input_dom\"" > "$CONFIG_FILE"
+    echo "NS_DOMAIN=\"$input_ns\"" >> "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+fi
+source "$CONFIG_FILE"
+
+# --- SYSTEM INFO GATHERING ---
+get_system_info() {
+    # OS Info
+    OS_NAME=$(lsb_release -ds 2>/dev/null || echo "Ubuntu 20.04")
+    
+    # Uptime format: 3 days, 17 hours, 44 minutes
+    UPTIME_DAYS=$(uptime -p | awk -F'up ' '{print $2}' | sed 's/ days\?,/d,/;s/ hours\?,/h,/;s/ minutes\?/m/' | cut -d, -f1)
+    UPTIME_FULL=$(uptime -p | sed 's/up //; s/ day,/ day,/; s/ hours\?/ hours/; s/ minutes\?/ minutes/')
+
+    # RAM Info
+    RAM_TOTAL=$(free -h | grep Mem | awk '{print $2}')
+    RAM_USED_PERC=$(free | grep Mem | awk '{printf("%.2f%%", $3/$2*100)}')
+    
+    # CPU Info
+    CPU_CORES=$(nproc)
+    CPU_LOAD=$(top -bn1 | grep "Cpu(s)" | awk '{printf("%.2f%%", $2 + $4)}')
+
+    # User Counts
+    TOTAL_USERS=$(grep -c /bin/false /etc/passwd)
+    ONLINE_USERS=$(netstat -tnp 2>/dev/null | grep sshd | grep ESTABLISHED | wc -l)
+    
+    # Expired Users Count
+    EXPIRED_USERS=0
+    CURRENT_SEC=$(date +%s)
+    while IFS=: read -r user _ _ _ _ _ shell; do
+        if [[ "$shell" == "/bin/false" ]]; then
+            EXP_DATE=$(chage -l "$user" | grep "Account expires" | cut -d: -f2)
+            if [[ "$EXP_DATE" != " never" ]]; then
+                EXP_SEC=$(date -d "$EXP_DATE" +%s 2>/dev/null)
+                [[ $EXP_SEC -le $CURRENT_SEC ]] && ((EXPIRED_USERS++))
+            fi
+        fi
+    done < /etc/passwd
 }
 
-# --- Management Functions ---
-
-# 01 - SSH
-m_ssh() {
-    header
-    echo -e "${CYAN}[01] Add SSH Port${NC}"
-    echo -e "${CYAN}[02] Remove SSH Port${NC}"
-    read -p "Option: " opt
-    if [[ $opt == "1" ]]; then
-        read -p "Port: " p
-        echo "Port $p" >> /etc/ssh/sshd_config && systemctl restart ssh
-    elif [[ $opt == "2" ]]; then
-        read -p "Port: " p
-        sed -i "/Port $p/d" /etc/ssh/sshd_config && systemctl restart ssh
+get_slowdns_key() {
+    if [ -f "/etc/dnstt/server.pub" ]; then
+        DNS_PUB_KEY=$(cat "/etc/dnstt/server.pub" | tr -d '\n\r ')
+    else
+        DNS_PUB_KEY=$(find /etc/dnstt -name "*.pub" 2>/dev/null | xargs cat 2>/dev/null | head -n 1 | tr -d '\n\r ')
     fi
+    [ -z "$DNS_PUB_KEY" ] && DNS_PUB_KEY="Not Found"
 }
 
-# 02 - Squid
-m_squid() {
-    header
-    echo -e "${CYAN}[01] Add Squid Port${NC}"
-    echo -e "${CYAN}[02] Remove Squid Port${NC}"
-    read -p "Option: " opt
-    if [[ $opt == "1" ]]; then
-        read -p "Port: " p
-        echo "http_port $p" >> /etc/squid/squid.conf && systemctl restart squid
-    elif [[ $opt == "2" ]]; then
-        read -p "Port: " p
-        sed -i "/http_port $p/d" /etc/squid/squid.conf && systemctl restart squid
-    fi
+get_ports() {
+    SSH_PORT=$(netstat -tunlp 2>/dev/null | grep sshd | grep LISTEN | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$SSH_PORT" ] && SSH_PORT="22"
+    DROPBEAR_PORT=$(netstat -tunlp 2>/dev/null | grep dropbear | grep LISTEN | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$DROPBEAR_PORT" ] && DROPBEAR_PORT="None"
+    STUNNEL_PORT=$(netstat -tunlp 2>/dev/null | grep stunnel | grep LISTEN | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$STUNNEL_PORT" ] && STUNNEL_PORT="None"
+    SQUID_PORT=$(netstat -tunlp 2>/dev/null | grep squid | grep LISTEN | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$SQUID_PORT" ] && SQUID_PORT="None"
+    WS_PORT=$(netstat -tunlp 2>/dev/null | grep -E 'python|node|ws' | grep LISTEN | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$WS_PORT" ] && WS_PORT="80, 8880"
+    OHP_PORT=$(netstat -tunlp 2>/dev/null | grep ohp | grep LISTEN | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$OHP_PORT" ] && OHP_PORT="None"
+    OVPN_TCP=$(netstat -tunlp 2>/dev/null | grep openvpn | grep tcp | grep LISTEN | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$OVPN_TCP" ] && OVPN_TCP="1194"
+    OVPN_UDP=$(netstat -tunlp 2>/dev/null | grep openvpn | grep udp | awk '{print $4}' | cut -d: -f2 | xargs | sed 's/ /, /g'); [ -z "$OVPN_UDP" ] && OVPN_UDP="1194"
 }
 
-# 03 - Dropbear
-m_dropbear() {
-    header
-    echo -e "${CYAN}[01] Change Main Port${NC}"
-    echo -e "${CYAN}[02] Add Extra Port (-p)${NC}"
-    read -p "Option: " opt
-    if [[ $opt == "1" ]]; then
-        read -p "Port: " p
-        sed -i "s/DROPBEAR_PORT=.*/DROPBEAR_PORT=$p/" /etc/default/dropbear && systemctl restart dropbear
-    elif [[ $opt == "2" ]]; then
-        read -p "Port: " p
-        args=$(grep "DROPBEAR_EXTRA_ARGS" /etc/default/dropbear | cut -d'"' -f2)
-        sed -i "s/DROPBEAR_EXTRA_ARGS=.*/DROPBEAR_EXTRA_ARGS=\"$args -p $p\"/" /etc/default/dropbear && systemctl restart dropbear
-    fi
+# --- DASHBOARD UI ---
+draw_dashboard() {
+    get_system_info
+    clear
+    echo -e " ${CYAN}┌──────────────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e " ${CYAN}│${NC}  ${BLUE}◇  SYSTEM${NC}               ${BLUE}◇  RAM MEMORY${NC}           ${BLUE}◇  PROCESS${NC}        ${CYAN}│${NC}"
+    printf " ${CYAN}│${NC}  ${RED}OS:${NC} %-19s ${RED}Total:${NC} %-13s ${RED}CPU cores:${NC} %-7s ${CYAN}│${NC}\n" "$OS_NAME" "$RAM_TOTAL" "$CPU_CORES"
+    printf " ${CYAN}│${NC}  ${RED}Up Time:${NC} %-48s ${RED}In use:${NC} %-8s ${CYAN}│${NC}\n" "$UPTIME_FULL" "$CPU_LOAD"
+    printf " ${CYAN}│${NC}  %-25s ${RED}In use:${NC} %-41s ${CYAN}│${NC}\n" "" "$RAM_USED_PERC"
+    echo -e " ${CYAN}├──────────────────────────────────────────────────────────────────────────┤${NC}"
+    printf " ${CYAN}│${NC}   ${GREEN}◇  Online:${NC} %-12s ${RED}◇  expired:${NC} %-12s ${YELLOW}◇  Total:${NC} %-10s  ${CYAN}│${NC}\n" "$ONLINE_USERS" "$EXPIRED_USERS" "$TOTAL_USERS"
+    echo -e " ${CYAN}└──────────────────────────────────────────────────────────────────────────┘${NC}"
 }
 
-# 05 - Proxy Socks
-m_ws() {
-    header
-    echo -e "${CYAN}Change Proxy Socks (WebSocket) Port${NC}"
-    read -p "Enter New Port: " p
-    if [[ -f "/etc/systemd/system/ws.service" ]]; then
-        sed -i "s/[0-9]\{2,5\}/$p/g" /etc/systemd/system/ws.service
-        systemctl daemon-reload && systemctl restart ws
-        echo -e "${GREEN}Proxy Socks Port changed to $p${NC}"; sleep 1
-    fi
+display_user_table() {
+    clear
+    echo -e "${CYAN}=========================================================================${NC}"
+    echo -e "${WHITE}                       -- CURRENT SYSTEM USERS --${NC}"
+    echo -e "${CYAN}=========================================================================${NC}"
+    printf "${YELLOW}%-15s | %-12s | %-10s | %-15s${NC}\n" "  Username" "  Password" "  Status" "  Expiry Date"
+    echo -e "${CYAN}-------------------------------------------------------------------------${NC}"
+    while IFS=: read -r username _ _ _ _ _ shell; do
+        if [[ "$shell" == "/bin/false" ]]; then
+            pass_find=$(grep -w "^$username" "$USER_DB" | cut -d: -f2)
+            [ -z "$pass_find" ] && pass_find="******"
+            exp=$(chage -l "$username" 2>/dev/null | grep "Account expires" | cut -d: -f2 | sed 's/ //')
+            [ -z "$exp" ] || [[ "$exp" == "never" ]] && exp="No Expiry"
+            is_online=$(netstat -tnp 2>/dev/null | grep sshd | grep ESTABLISHED | grep -w "$username")
+            status=$([ -z "$is_online" ] && echo -e "${RED}Offline${NC}" || echo -e "${GREEN}Online${NC}")
+            printf "  %-13s | %-10s | %-18s | %-15s\n" "$username" "$pass_find" "$status" "$exp"
+        fi
+    done < /etc/passwd
+    echo -e "${CYAN}=========================================================================${NC}"
+    echo ""
 }
 
-# 06 - SSL TUNNEL (Stunnel4) အသစ်ထည့်သွင်းခြင်း
-m_ssl() {
-    header
-    echo -e "${CYAN}[01] Add SSL Port${NC}"
-    echo -e "${CYAN}[02] Remove SSL Port${NC}"
-    read -p "Option: " opt
-    if [[ $opt == "1" ]]; then
-        read -p "Listen Port (SSL Port): " p
-        read -p "Internal Port (Connect to - e.g. 22 or 442): " ip
-        # Config ထဲသို့ အသစ်ထည့်ခြင်း
-        echo -e "\n[SSL_$p]\naccept = $p\nconnect = 127.0.0.1:$ip" >> /etc/stunnel/stunnel.conf
-        systemctl restart stunnel4
-        echo -e "${GREEN}SSL Port $p Added successfully!${NC}"; sleep 1
-    elif [[ $opt == "2" ]]; then
-        read -p "Enter SSL Port to Remove: " p
-        # Port block တစ်ခုလုံးကို ရှာပြီး ဖျက်ခြင်း
-        sed -i "/\[SSL_$p\]/,+2d" /etc/stunnel/stunnel.conf
-        # တခြား format နဲ့ရှိနေရင် accept line ကိုပါ ရှာဖျက်မယ်
-        sed -i "/accept = $p/,+1d" /etc/stunnel/stunnel.conf
-        systemctl restart stunnel4
-        echo -e "${RED}SSL Port $p Removed!${NC}"; sleep 1
-    fi
+show_details() {
+    clear
+    get_slowdns_key
+    get_ports
+    echo -e "${CYAN}=====================================================${NC}"
+    echo -e "${YELLOW}           -- SSH & VPN ACCOUNT DETAILS --${NC}"
+    echo -e "${CYAN}=====================================================${NC}"
+    echo -e " Username        : ${GREEN}$user${NC}"
+    echo -e " Password        : ${GREEN}$pass${NC}"
+    echo -e " Expired Date    : ${GREEN}$exp_date${NC}"
+    echo -e " Limit           : ${GREEN}$user_limit Device(s)${NC}"
+    echo -e " Domain          : ${YELLOW}$DOMAIN${NC}"
+    echo -e " NS Domain       : ${YELLOW}$NS_DOMAIN${NC}"
+    echo -e " Publickey       : ${CYAN}$DNS_PUB_KEY${NC}"
+    echo -e "${CYAN}----------------------------------------------------${NC}"
+    echo -e " SSH Port        : ${WHITE}$SSH_PORT${NC}"
+    echo -e " SSH Websocket   : ${WHITE}$WS_PORT${NC}"
+    echo -e " Squid Port      : ${WHITE}$SQUID_PORT${NC}"
+    echo -e " Dropbear Port   : ${WHITE}$DROPBEAR_PORT${NC}"
+    echo -e " Stunnel Port    : ${WHITE}$STUNNEL_PORT${NC}"
+    echo -e " OHP Port        : ${WHITE}$OHP_PORT${NC}"
+    echo -e " OVPN TCP        : ${WHITE}$OVPN_TCP${NC}"
+    echo -e " OVPN UDP        : ${WHITE}$OVPN_UDP${NC}"
+    echo -e " OVPN SSL        : ${WHITE}$STUNNEL_PORT${NC}"
+    echo -e "${CYAN}=====================================================${NC}"
+    echo ""
+    read -p "Press Enter to return to menu..."
 }
 
-# --- Main Menu ---
+# --- MAIN LOOP ---
 while true; do
-    header
-    echo -e "${YELLOW}[01]${NC} • OPENSSH ${BLUE}♦${NC}"
-    echo -e "${YELLOW}[02]${NC} • SQUID PROXY ${RED}○${NC}"
-    echo -e "${YELLOW}[03]${NC} • DROPBEAR ${BLUE}♦${NC}"
-    echo -e "${YELLOW}[04]${NC} • OPENVPN ${RED}○${NC}"
-    echo -e "${YELLOW}[05]${NC} • PROXY SOCKS ${BLUE}♦${NC}"
-    echo -e "${YELLOW}[06]${NC} • SSL TUNNEL ${RED}○${NC}"
-    echo -e "${YELLOW}[07]${NC} • SSLH MULTIPLEX ${RED}○${NC}"
-    echo -e "${YELLOW}[08]${NC} • CHISEL ${RED}○${NC}"
-    echo -e "${YELLOW}[09]${NC} • SLOWDNS ${RED}○${NC}"
-    echo -e "${YELLOW}[10]${NC} • COME BACK ${CYAN}<<<${NC}"
-    echo -e "${YELLOW}[00]${NC} • GET OUT ${CYAN}<<<${NC}"
-    echo -e ""
-    read -p "WHAT DO YOU WANT TO DO ?? : " action
+    draw_dashboard
+    echo ""
+    echo -e " ${YELLOW}[01]${NC} CREATE USER          ${YELLOW}[05]${NC} CHANGE USERNAME"
+    echo -e " ${YELLOW}[02]${NC} CREATE TEST USER     ${YELLOW}[06]${NC} CHANGE PASSWORD"
+    echo -e " ${YELLOW}[03]${NC} REMOVE USER          ${YELLOW}[07]${NC} CHANGE DATE"
+    echo -e " ${YELLOW}[04]${NC} USER INFO (FULL)     ${YELLOW}[08]${NC} CHANGE LIMIT"
+    echo -e " ${YELLOW}[09]${NC} SlowDns Install      ${YELLOW}[10]${NC} RESET DOMAIN/NS"
+    echo -e " ${YELLOW}[00]${NC} EXIT"
+    echo ""
+    read -p " ◇ Select Option: " opt
 
-    case $action in
-        1|01) m_ssh ;;
-        2|02) m_squid ;;
-        3|03) m_dropbear ;;
-        5|05) m_ws ;;
-        6|06) m_ssl ;;
+    case $opt in
+        1|01)
+            read -p "Username: " user
+            if id "$user" &>/dev/null; then echo -e "${RED}User exists!${NC}"; sleep 1; continue; fi
+            read -p "Password: " pass; read -p "Days: " days; read -p "Limit: " user_limit
+            exp_date=$(date -d "+$days days" +"%Y-%m-%d")
+            useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd
+            echo "$user hard maxlogins $user_limit" >> /etc/security/limits.conf
+            echo "$user:$pass" >> "$USER_DB"
+            show_details ;;
+        2|02)
+            user="test_$(head /dev/urandom | tr -dc 0-9 | head -c 4)"; pass="123"; user_limit="1"
+            exp_date=$(date -d "+1 days" +"%Y-%m-%d")
+            useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd
+            echo "$user:$pass" >> "$USER_DB"
+            show_details ;;
+        3|03) display_user_table; read -p "Username to REMOVE: " user; userdel -f $user; sed -i "/^$user:/d" "$USER_DB"; sed -i "/$user hard maxlogins/d" /etc/security/limits.conf; echo -e "${RED}User Removed!${NC}"; sleep 1 ;;
+        4|04) display_user_table; read -p "Press Enter to return..." ;;
+        5|05) display_user_table; read -p "Old Username: " old_user; read -p "New Username: " new_user; usermod -l $new_user $old_user; sed -i "s/^$old_user:/$new_user:/" "$USER_DB"; sed -i "s/$old_user hard maxlogins/$new_user hard maxlogins/" /etc/security/limits.conf; echo -e "${GREEN}Username Changed!${NC}"; sleep 1 ;;
+        6|06) display_user_table; read -p "Username: " user; read -p "New Password: " pass; echo "$user:$pass" | chpasswd; sed -i "s/^$user:.*/$user:$pass/" "$USER_DB"; echo -e "${GREEN}Password Updated!${NC}"; sleep 1 ;;
+        7|07) display_user_table; read -p "Username: " user; read -p "New Expiry Date (YYYY-MM-DD): " exp_date; usermod -e $exp_date $user; echo -e "${GREEN}Expiry Date Updated!${NC}"; sleep 1 ;;
+        8|08) display_user_table; read -p "Username: " user; read -p "New Login Limit: " user_limit; sed -i "/$user hard maxlogins/d" /etc/security/limits.conf; echo "$user hard maxlogins $user_limit" >> /etc/security/limits.conf; echo -e "${GREEN}Limit Updated!${NC}"; sleep 1 ;;
+        9|09) bash <(curl -Ls https://raw.githubusercontent.com/bugfloyd/dnstt-deploy/main/dnstt-deploy.sh); read -p "Press Enter to return..." ;;
+        10) rm -f "$CONFIG_FILE"; exec "$0" ;;
         0|00) exit 0 ;;
-        *) echo -e "${RED}Invalid!${NC}"; sleep 1 ;;
+        *) sleep 1 ;;
     esac
 done
