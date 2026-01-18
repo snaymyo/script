@@ -39,7 +39,7 @@ do_initial_setup() {
 [ ! -f "$CONFIG_FILE" ] && do_initial_setup
 source "$CONFIG_FILE"
 
-# --- PORT DETECTOR ---
+# --- PORT DETECTOR (READ ONLY - မူလအတိုင်းရှိနေမည်) ---
 check_port() {
     local service=$1
     local result=$(netstat -tunlp | grep LISTEN | grep -i "$service" | awk '{print $4}' | cut -d: -f2 | sort -u | xargs)
@@ -103,7 +103,6 @@ get_system_info() {
     RAM_USED_PERC=$(free | grep Mem | awk '{printf("%.2f%%", $3/$2*100)}')
     CPU_CORES=$(nproc); CPU_LOAD=$(top -bn1 | grep "Cpu(s)" | awk '{printf("%.2f%%", $2 + $4)}')
     
-    # Updated Total User detection
     TOTAL_USERS=$(grep -E "/false|/nologin" /etc/passwd | wc -l)
     ONLINE_USERS=$(netstat -tnp 2>/dev/null | grep sshd | grep ESTABLISHED | wc -l)
     
@@ -157,7 +156,7 @@ while true; do
     echo -e " ${YELLOW}[03]${NC} REMOVE USER          ${YELLOW}[09]${NC} SlowDns Install"
     echo -e " ${YELLOW}[04]${NC} USER INFO (FULL)     ${YELLOW}[10]${NC} RESET DOMAIN/NS"
     echo -e " ${YELLOW}[05]${NC} CHANGE USERNAME      ${YELLOW}[11]${NC} ${RED}REINSTALL UBUNTU 20${NC}"
-    echo -e " ${YELLOW}[06]${NC} CHANGE PASSWORD      ${YELLOW}[12]${NC} ${GREEN}SSH MANAGER${NC}           ${YELLOW}[00]${NC} EXIT"
+    echo -e " ${YELLOW}[06]${NC} CHANGE PASSWORD      ${YELLOW}[00]${NC} EXIT"
     echo ""
     read -p " ◇ Select Option: " opt
     case $opt in
@@ -259,7 +258,6 @@ while true; do
                 [[ "$nav" != "c" ]] && break
             done ;;
         9|09) 
-            # Updated SlowDNS Installer
             clear
             echo -e "${YELLOW}Starting SlowDNS Installation...${NC}"
             bash <(curl -Ls https://raw.githubusercontent.com/bugfloyd/dnstt-deploy/main/dnstt-deploy.sh)
@@ -268,7 +266,6 @@ while true; do
         10) rm -f "$CONFIG_FILE"; do_initial_setup ;;
         11) clear; read -p "New Root Pass: " re_pass; read -p "Confirm? (y/n): " confirm
             if [[ "$confirm" == "y" ]]; then apt update -y && apt install gawk tar wget curl -y; wget -qO reinstall.sh https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh; bash reinstall.sh ubuntu 20.04 --password "$re_pass"; reboot; fi ;;
-        12) apt install wget -y; bash <(wget -qO- raw.githubusercontent.com/alfainternet/SSHPLUS/master/ssh-plus) ;;
         0|00) exit 0 ;;
         *) sleep 1 ;;
     esac
