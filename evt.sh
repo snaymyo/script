@@ -62,7 +62,7 @@ get_slowdns_key() {
     [ -z "$DNS_PUB_KEY" ] && DNS_PUB_KEY="None"
 }
 
-# --- 1DEVICE 1KEY & AUTO DELETE LOGIC (IMPROVED) ---
+# --- 1DEVICE 1KEY & AUTO DELETE LOGIC (FIXED) ---
 check_user_limits_and_expired() {
     local current_sec=$(date +%s)
     [ ! -s "$USER_DB" ] && return
@@ -70,7 +70,7 @@ check_user_limits_and_expired() {
     while IFS=: read -r u p; do
         [[ -z "$u" || "$u" == "root" ]] && continue
         
-        # 1. Expired Check
+        # 1. Expired Check & Auto Delete
         exp_date_raw=$(chage -l "$u" 2>/dev/null | grep "Account expires" | cut -d: -f2)
         if [[ -n "$exp_date_raw" && "$exp_date_raw" != " never" ]]; then
             exp_sec=$(date -d "$exp_date_raw" +%s 2>/dev/null)
@@ -82,17 +82,17 @@ check_user_limits_and_expired() {
             fi
         fi
 
-        # 2. 1Device 1Key (Auto Kill newest session if over limit)
+        # 2. 1Device 1Key Logic
         local max_limit=$(grep -E "^$u[[:space:]]+hard[[:space:]]+maxlogins" /etc/security/limits.conf | awk '{print $4}' | head -n 1)
         [ -z "$max_limit" ] && max_limit=1
         
-        # sshd: username @pts/notty ပုံစံဖြင့် တိကျစွာ Session ရှာဖွေခြင်း
-        local session_pids=$(ps aux | grep -i "sshd: $u" | grep -v grep | awk '{print $2}' | sort -rn)
-        local current_sessions=$(echo "$session_pids" | wc -w)
+        # ပိုမိုတိကျသော User-specific session counting
+        local session_pids=$(pgrep -u "$u" sshd | sort -rn)
+        local count=$(echo "$session_pids" | wc -w)
 
-        if [ "$current_sessions" -gt "$max_limit" ]; then
-            local excess=$((current_sessions - max_limit))
-            # အသစ်ဝင်လာသော PID များကိုသာ ဖြတ်ချမည် (PID မြင့်သောလူသည် အသစ်ဖြစ်သည်)
+        if [ "$count" -gt "$max_limit" ]; then
+            local excess=$((count - max_limit))
+            # နောက်ဆုံးဝင်လာသော session (PID အကြီးဆုံး) ကိုသာ ဖြတ်ချမည်
             for pid in $(echo "$session_pids" | head -n "$excess"); do
                 kill -9 "$pid" &>/dev/null
             done
@@ -140,7 +140,7 @@ get_system_info() {
     if [ -s "$USER_DB" ]; then
         while IFS=: read -r u p; do
             [[ -z "$u" || "$u" == "root" ]] && continue
-            count=$(ps aux | grep -i "sshd: $u" | grep -v grep | wc -l)
+            count=$(pgrep -u "$u" sshd | wc -l)
             ONLINE_USERS=$((ONLINE_USERS + count))
         done < "$USER_DB"
     fi
@@ -173,7 +173,7 @@ display_user_table() {
                 exp_t=$(chage -l "$username" 2>/dev/null | grep "Account expires" | cut -d: -f2 | xargs)
                 [ -z "$exp_t" ] || [[ "$exp_t" == "never" ]] && exp_t="No Expiry"
                 
-                count_on=$(ps aux | grep -i "sshd: $username" | grep -v grep | wc -l)
+                count_on=$(pgrep -u "$username" sshd | wc -l)
                 u_limit=$(grep -E "^$username[[:space:]]+hard[[:space:]]+maxlogins" /etc/security/limits.conf | awk '{print $4}' | head -n 1)
                 [ -z "$u_limit" ] && u_limit="1"
 
@@ -202,7 +202,7 @@ while true; do
     read -t 5 -p " ◇ Select Option: " opt
     case $opt in
         1|01) while true; do clear; echo -e "${CYAN}--- CREATE NEW USER ---${NC}"; read -p "Username: " user; id "$user" &>/dev/null && echo -e "${RED}Already!${NC}" && sleep 1 && continue; read -p "Password: " pass; read -p "Days: " days; read -p "Limit: " user_limit; exp_date=$(date -d "+$days days" +"%Y-%m-%d"); useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd; sed -i "/$user hard maxlogins/d" /etc/security/limits.conf; echo "$user hard maxlogins $user_limit" >> /etc/security/limits.conf; echo "$user:$pass" >> "$USER_DB"; show_details; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
-        2|02) while true; do user="test_$(head /dev/urandom | tr -dc 0-9 | head -c 4)"; pass="123"; user_limit="1"; exp_date=$(date -d "+1 days" +"%Y-%m-%d"); useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd; sed -i "/$user hard maxlogins/d" /etc/security/limits.conf; echo "$user hard maxlogins 1" >> /etc/security/limits.conf; echo "$user:$pass" >> "$USER_DB"; show_details; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
+        2|02) while true; do user="test_$(head /dev/urandom | tr -dc 0-9 | head -c 4)"; pass="123"; user_limit="1"; exp_date=$(date -d "+1 days" +"%Y-%m-%d"); useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd; echo "$user hard maxlogins 1" >> /etc/security/limits.conf; echo "$user:$pass" >> "$USER_DB"; show_details; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
         3|03) while true; do display_user_table; echo -e " [1] Remove Name [2] Remove ALL"; read -p " Select: " rm_opt; if [[ "$rm_opt" == "1" ]]; then read -p " Name: " user; userdel -f "$user" && sed -i "/^$user:/d" "$USER_DB" && sed -i "/$user hard maxlogins/d" /etc/security/limits.conf && echo -e "${GREEN}Deleted!${NC}"; elif [[ "$rm_opt" == "2" ]]; then read -p " Confirm Delete ALL? (y/n): " confirm; [[ "$confirm" == "y" ]] && while IFS=: read -r u p; do userdel -f "$u" &>/dev/null; sed -i "/$u hard maxlogins/d" /etc/security/limits.conf; done < "$USER_DB" && > "$USER_DB" && echo -e "${GREEN}All cleared!${NC}"; fi; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
         4|04) while true; do display_user_table; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
         5|05) while true; do display_user_table; read -p "Old Name: " old_u; [ -z "$old_u" ] && break; if ! id "$old_u" &>/dev/null; then echo -e "${RED}User not found!${NC}"; sleep 1; continue; fi; read -p "New Name: " new_u; [ -z "$new_u" ] && continue; if id "$new_u" &>/dev/null; then echo -e "${RED}New name already exists!${NC}"; sleep 1; continue; fi; pkill -u "$old_u" &>/dev/null; sleep 0.5; usermod -l "$new_u" "$old_u" && groupmod -n "$new_u" "$old_u" &>/dev/null; sed -i "s/^$old_u:/$new_u:/" "$USER_DB"; sed -i "s/$old_u hard/$new_u hard/" /etc/security/limits.conf; echo -e "${GREEN}Username changed successfully!${NC}"; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
