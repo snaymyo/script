@@ -137,7 +137,6 @@ display_user_table() {
     printf "${YELLOW} %-15s | %-12s | %-10s | %-15s${NC}\n" "Username" "Password" "Status" "Expiry Date"
     echo -e "${CYAN}-------------------------------------------------------------------------${NC}"
     while IFS=: read -r username _ _ _ _ _ shell; do
-        # Detect both /bin/false and /usr/bin/false
         if [[ "$shell" == *"/false" || "$shell" == *"/nologin" ]]; then
             pass_find=$(grep -w "^$username" "$USER_DB" | cut -d: -f2); [ -z "$pass_find" ] && pass_find="******"
             exp_t=$(chage -l "$username" 2>/dev/null | grep "Account expires" | cut -d: -f2 | xargs); [ -z "$exp_t" ] || [[ "$exp_t" == "never" ]] && exp_t="No Expiry"
@@ -259,7 +258,13 @@ while true; do
                 read -p "Return to Panel (m) or Continue (c)?: " nav
                 [[ "$nav" != "c" ]] && break
             done ;;
-        9|09) apt update -y && apt install golang git -y; bash <(curl -Ls https://raw.githubusercontent.com/bugfloyd/dnstt-deploy/main/dnstt-deploy.sh); read -p "Done..." ;;
+        9|09) 
+            # Updated SlowDNS Installer
+            clear
+            echo -e "${YELLOW}Starting SlowDNS Installation...${NC}"
+            bash <(curl -Ls https://raw.githubusercontent.com/bugfloyd/dnstt-deploy/main/dnstt-deploy.sh)
+            read -p "Press Enter to continue..." 
+            ;;
         10) rm -f "$CONFIG_FILE"; do_initial_setup ;;
         11) clear; read -p "New Root Pass: " re_pass; read -p "Confirm? (y/n): " confirm
             if [[ "$confirm" == "y" ]]; then apt update -y && apt install gawk tar wget curl -y; wget -qO reinstall.sh https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh; bash reinstall.sh ubuntu 20.04 --password "$re_pass"; reboot; fi ;;
