@@ -39,23 +39,23 @@ do_initial_setup() {
 [ ! -f "$CONFIG_FILE" ] && do_initial_setup
 source "$CONFIG_FILE"
 
-# --- PORT DETECTOR (READ ONLY - မူလအတိုင်းရှိနေမည်) ---
+# --- PORT DETECTOR ---
 check_port() {
     local service=$1
-    local result=$(netstat -tunlp | grep LISTEN | grep -i "$service" | awk '{print $4}' | cut -d: -f2 | sort -u | xargs)
+    local result=$(netstat -tunlp | grep LISTEN | grep -i "$service" | awk '{print $4}' | sed 's/.*://' | sort -u | xargs)
     [ -z "$result" ] && echo "None" || echo "$result"
 }
 
 get_ports() {
     SSH_PORT=$(check_port "sshd")
-    WS_PORT=$(netstat -tunlp | grep LISTEN | grep -E 'python|node|ws-st|proxy|litespeed' | awk '{print $4}' | cut -d: -f2 | sort -u | xargs); [ -z "$WS_PORT" ] && WS_PORT="None"
+    WS_PORT=$(netstat -tunlp | grep LISTEN | grep -E 'python|node|ws-st|proxy|litespeed|go-ws' | awk '{print $4}' | sed 's/.*://' | sort -u | xargs); [ -z "$WS_PORT" ] && WS_PORT="None"
     SQUID_PORT=$(check_port "squid")
     DROPBEAR_PORT=$(check_port "dropbear")
-    STUNNEL_PORT=$(check_port "stunnel")
+    STUNNEL_PORT=$(netstat -tunlp | grep LISTEN | grep -E 'stunnel|stunnel4' | awk '{print $4}' | sed 's/.*://' | sort -u | xargs); [ -z "$STUNNEL_PORT" ] && STUNNEL_PORT="None"
     OHP_PORT=$(check_port "ohp")
-    OVPN_TCP=$(netstat -tunlp | grep LISTEN | grep openvpn | grep tcp | awk '{print $4}' | cut -d: -f2 | sort -u | xargs); [ -z "$OVPN_TCP" ] && OVPN_TCP="None"
-    OVPN_UDP=$(netstat -tunlp | grep udp | grep openvpn | awk '{print $4}' | cut -d: -f2 | sort -u | xargs); [ -z "$OVPN_UDP" ] && OVPN_UDP="None"
-    OVPN_SSL=$(check_port "stunnel")
+    OVPN_TCP=$(netstat -tunlp | grep LISTEN | grep openvpn | grep tcp | awk '{print $4}' | sed 's/.*://' | sort -u | xargs); [ -z "$OVPN_TCP" ] && OVPN_TCP="None"
+    OVPN_UDP=$(netstat -tunlp | grep udp | grep openvpn | awk '{print $4}' | sed 's/.*://' | sort -u | xargs); [ -z "$OVPN_UDP" ] && OVPN_UDP="None"
+    OVPN_SSL="$STUNNEL_PORT"
 }
 
 get_slowdns_key() {
@@ -151,12 +151,12 @@ display_user_table() {
 while true; do
     draw_dashboard
     echo ""
-    echo -e " ${YELLOW}[01]${NC} CREATE USER          ${YELLOW}[07]${NC} CHANGE DATE"
-    echo -e " ${YELLOW}[02]${NC} CREATE TEST USER     ${YELLOW}[08]${NC} CHANGE LIMIT"
-    echo -e " ${YELLOW}[03]${NC} REMOVE USER          ${YELLOW}[09]${NC} SlowDns Install"
-    echo -e " ${YELLOW}[04]${NC} USER INFO (FULL)     ${YELLOW}[10]${NC} RESET DOMAIN/NS"
-    echo -e " ${YELLOW}[05]${NC} CHANGE USERNAME      ${YELLOW}[11]${NC} ${RED}REINSTALL UBUNTU 20${NC}"
-    echo -e " ${YELLOW}[06]${NC} CHANGE PASSWORD      ${YELLOW}[00]${NC} EXIT"
+    echo -e " ${YELLOW}[01]${NC} CREATE USER          ${YELLOW}[06]${NC} CHANGE PASSWORD"
+    echo -e " ${YELLOW}[02]${NC} CREATE TEST USER     ${YELLOW}[07]${NC} CHANGE DATE"
+    echo -e " ${YELLOW}[03]${NC} REMOVE USER          ${YELLOW}[08]${NC} CHANGE LIMIT"
+    echo -e " ${YELLOW}[04]${NC} USER INFO (FULL)     ${YELLOW}[09]${NC} RESET DOMAIN/NS"
+    echo -e " ${YELLOW}[05]${NC} CHANGE USERNAME      ${YELLOW}[10]${NC} ${RED}REINSTALL UBUNTU 20${NC}"
+    echo -e " ${YELLOW}[00]${NC} EXIT"
     echo ""
     read -p " ◇ Select Option: " opt
     case $opt in
@@ -257,14 +257,8 @@ while true; do
                 read -p "Return to Panel (m) or Continue (c)?: " nav
                 [[ "$nav" != "c" ]] && break
             done ;;
-        9|09) 
-            clear
-            echo -e "${YELLOW}Starting SlowDNS Installation...${NC}"
-            bash <(curl -Ls https://raw.githubusercontent.com/bugfloyd/dnstt-deploy/main/dnstt-deploy.sh)
-            read -p "Press Enter to continue..." 
-            ;;
-        10) rm -f "$CONFIG_FILE"; do_initial_setup ;;
-        11) clear; read -p "New Root Pass: " re_pass; read -p "Confirm? (y/n): " confirm
+        9|09) rm -f "$CONFIG_FILE"; do_initial_setup ;;
+        10) clear; read -p "New Root Pass: " re_pass; read -p "Confirm? (y/n): " confirm
             if [[ "$confirm" == "y" ]]; then apt update -y && apt install gawk tar wget curl -y; wget -qO reinstall.sh https://raw.githubusercontent.com/bin456789/reinstall/main/reinstall.sh; bash reinstall.sh ubuntu 20.04 --password "$re_pass"; reboot; fi ;;
         0|00) exit 0 ;;
         *) sleep 1 ;;
