@@ -1,15 +1,23 @@
 #!/bin/bash
 
+# --- ROOT CHECK ---
+if [[ $EUID -ne 0 ]]; then
+   echo -e "\033[0;31mError: Root user ဖြင့်သာ run ပါ။\033[0m"
+   exit 1
+fi
+
 # --- DEPENDENCY CHECK ---
 if ! command -v netstat &> /dev/null || ! command -v wget &> /dev/null; then
     apt update -y &> /dev/null
-    apt install net-tools wget -y &> /dev/null
+    apt install net-tools wget curl lsb-release -y &> /dev/null
 fi
 
-# --- AUTOMATIC SHORTCUT SETUP ---
-SCRIPT_PATH=$(readlink -f "$0")
-ln -sf "$SCRIPT_PATH" /usr/local/bin/evt &> /dev/null
-chmod +x /usr/local/bin/evt &> /dev/null
+# --- AUTOMATIC INSTALL (evt command ရအောင်လုပ်ခြင်း) ---
+if [[ "$0" != "/usr/local/bin/evt" ]]; then
+    cp "$0" /usr/local/bin/evt
+    chmod +x /usr/local/bin/evt
+    ln -sf /usr/local/bin/evt /usr/bin/evt &> /dev/null
+fi
 
 # Colors
 CYAN='\033[0;36m'
