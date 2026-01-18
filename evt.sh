@@ -19,9 +19,9 @@ USER_DB="/etc/evt_users.db"
 
 do_initial_setup() {
     clear
-    echo -e "${CYAN}=====================================================${NC}"
-    echo -e "${YELLOW}           -- INITIAL SERVER SETUP --${NC}"
-    echo -e "${CYAN}=====================================================${NC}"
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC}${YELLOW}           -- INITIAL SERVER SETUP --${NC}${CYAN}            │${NC}"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────┘${NC}"
     read -p " ◇ Enter your DOMAIN (Default: evtvip.com): " input_dom
     read -p " ◇ Enter your NAMESERVER (Default: ns.evtvip.com): " input_ns
     [ -z "$input_dom" ] && input_dom="evtvip.com"
@@ -62,10 +62,15 @@ get_slowdns_key() {
     [ -z "$DNS_PUB_KEY" ] && DNS_PUB_KEY="None"
 }
 
-auto_delete_expired() {
+# --- 1DEVICE 1KEY & AUTO DELETE LOGIC (IMPROVED) ---
+check_user_limits_and_expired() {
     local current_sec=$(date +%s)
     [ ! -s "$USER_DB" ] && return
+    
     while IFS=: read -r u p; do
+        [[ -z "$u" || "$u" == "root" ]] && continue
+        
+        # 1. Expired Check
         exp_date_raw=$(chage -l "$u" 2>/dev/null | grep "Account expires" | cut -d: -f2)
         if [[ -n "$exp_date_raw" && "$exp_date_raw" != " never" ]]; then
             exp_sec=$(date -d "$exp_date_raw" +%s 2>/dev/null)
@@ -73,7 +78,24 @@ auto_delete_expired() {
                 userdel -f "$u" &>/dev/null
                 sed -i "/^$u:/d" "$USER_DB"
                 sed -i "/$u hard maxlogins/d" /etc/security/limits.conf
+                continue
             fi
+        fi
+
+        # 2. 1Device 1Key (Auto Kill newest session if over limit)
+        local max_limit=$(grep -E "^$u[[:space:]]+hard[[:space:]]+maxlogins" /etc/security/limits.conf | awk '{print $4}' | head -n 1)
+        [ -z "$max_limit" ] && max_limit=1
+        
+        # sshd: username @pts/notty ပုံစံဖြင့် တိကျစွာ Session ရှာဖွေခြင်း
+        local session_pids=$(ps aux | grep -i "sshd: $u" | grep -v grep | awk '{print $2}' | sort -rn)
+        local current_sessions=$(echo "$session_pids" | wc -w)
+
+        if [ "$current_sessions" -gt "$max_limit" ]; then
+            local excess=$((current_sessions - max_limit))
+            # အသစ်ဝင်လာသော PID များကိုသာ ဖြတ်ချမည် (PID မြင့်သောလူသည် အသစ်ဖြစ်သည်)
+            for pid in $(echo "$session_pids" | head -n "$excess"); do
+                kill -9 "$pid" &>/dev/null
+            done
         fi
     done < "$USER_DB"
 }
@@ -82,31 +104,32 @@ show_details() {
     clear
     get_slowdns_key
     get_ports
-    echo -e "${CYAN}=====================================================${NC}"
-    echo -e "${YELLOW}           -- SSH & VPN ACCOUNT DETAILS --${NC}"
-    echo -e "${CYAN}=====================================================${NC}"
-    printf " %-16s : ${GREEN}%s${NC}\n" "Username" "$user"
-    printf " %-16s : ${GREEN}%s${NC}\n" "Password" "$pass"
-    printf " %-16s : ${GREEN}%s${NC}\n" "Expired Date" "$exp_date"
-    printf " %-16s : ${GREEN}%s Device(s)${NC}\n" "Limit" "$user_limit"
-    printf " %-16s : ${YELLOW}%s${NC}\n" "Domain" "$DOMAIN"
-    printf " %-16s : ${YELLOW}%s${NC}\n" "NS Domain" "$NS_DOMAIN"
-    printf " %-16s : ${CYAN}%s${NC}\n" "Publickey" "$DNS_PUB_KEY"
-    echo -e " "
-    printf " %-16s : ${WHITE}%s${NC}\n" "SSH Port" "$SSH_PORT"
-    printf " %-16s : ${WHITE}%s${NC}\n" "SSH Websocket" "$WS_PORT"
-    printf " %-16s : ${WHITE}%s${NC}\n" "Squid Port" "$SQUID_PORT"
-    printf " %-16s : ${WHITE}%s${NC}\n" "Dropbear Port" "$DROPBEAR_PORT"
-    printf " %-16s : ${WHITE}%s${NC}\n" "Stunnel Port" "$STUNNEL_PORT"
-    printf " %-16s : ${WHITE}%s${NC}\n" "OHP Port" "$OHP_PORT"
-    printf " %-16s : ${WHITE}%s${NC}\n" "OVPN TCP" "$OVPN_TCP"
-    printf " %-16s : ${WHITE}%s${NC}\n" "OVPN UDP" "$OVPN_UDP"
-    printf " %-16s : ${WHITE}%s${NC}\n" "OVPN SSL" "$OVPN_SSL"
-    echo -e "${CYAN}=====================================================${NC}"
+    echo -e "${CYAN}┌─────────────────────────────────────────────────────┐${NC}"
+    echo -e "${CYAN}│${NC}${YELLOW}           -- SSH & VPN ACCOUNT DETAILS --${NC}${CYAN}       │${NC}"
+    echo -e "${CYAN}├─────────────────────────────────────────────────────┤${NC}"
+    printf "${CYAN}│${NC} %-16s : ${GREEN}%-32s${NC} ${CYAN}│${NC}\n" "Username" "$user"
+    printf "${CYAN}│${NC} %-16s : ${GREEN}%-32s${NC} ${CYAN}│${NC}\n" "Password" "$pass"
+    printf "${CYAN}│${NC} %-16s : ${GREEN}%-32s${NC} ${CYAN}│${NC}\n" "Expired Date" "$exp_date"
+    printf "${CYAN}│${NC} %-16s : ${GREEN}%-32s${NC} ${CYAN}│${NC}\n" "Limit" "$user_limit Device(s)"
+    printf "${CYAN}│${NC} %-16s : ${YELLOW}%-32s${NC} ${CYAN}│${NC}\n" "Domain" "$DOMAIN"
+    printf "${CYAN}│${NC} %-16s : ${YELLOW}%-32s${NC} ${CYAN}│${NC}\n" "NS Domain" "$NS_DOMAIN"
+    printf "${CYAN}│${NC} %-16s : ${CYAN}%-32s${NC} ${CYAN}│${NC}\n" "Publickey" "${DNS_PUB_KEY:0:32}"
+    [ ${#DNS_PUB_KEY} -gt 32 ] && printf "${CYAN}│${NC} %-16s   ${CYAN}%-32s${NC} ${CYAN}│${NC}\n" "" "${DNS_PUB_KEY:32}"
+    echo -e "${CYAN}├─────────────────────────────────────────────────────┤${NC}"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "SSH Port" "$SSH_PORT"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "SSH Websocket" "$WS_PORT"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "Squid Port" "$SQUID_PORT"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "Dropbear Port" "$DROPBEAR_PORT"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "Stunnel Port" "$STUNNEL_PORT"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "OHP Port" "$OHP_PORT"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "OVPN TCP" "$OVPN_TCP"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "OVPN UDP" "$OVPN_UDP"
+    printf "${CYAN}│${NC} %-16s : ${WHITE}%-32s${NC} ${CYAN}│${NC}\n" "OVPN SSL" "$OVPN_SSL"
+    echo -e "${CYAN}└─────────────────────────────────────────────────────┘${NC}"
 }
 
 get_system_info() {
-    auto_delete_expired
+    check_user_limits_and_expired 
     OS_NAME=$(lsb_release -ds 2>/dev/null | cut -c 1-20); [ -z "$OS_NAME" ] && OS_NAME="Ubuntu 20.04"
     UPTIME_VAL=$(uptime -p | sed 's/up //; s/ hours\?,/h/; s/ minutes\?/m/; s/ days\?,/d/' | cut -c 1-12)
     RAM_TOTAL=$(free -h | grep Mem | awk '{print $2}')
@@ -116,8 +139,8 @@ get_system_info() {
     ONLINE_USERS=0
     if [ -s "$USER_DB" ]; then
         while IFS=: read -r u p; do
-            [ -z "$u" ] && continue
-            count=$(ps -u "$u" 2>/dev/null | grep -c sshd)
+            [[ -z "$u" || "$u" == "root" ]] && continue
+            count=$(ps aux | grep -i "sshd: $u" | grep -v grep | wc -l)
             ONLINE_USERS=$((ONLINE_USERS + count))
         done < "$USER_DB"
     fi
@@ -137,21 +160,20 @@ draw_dashboard() {
 }
 
 display_user_table() {
-    auto_delete_expired
+    check_user_limits_and_expired
     clear
-    echo -e "${CYAN}=========================================================================${NC}"
-    printf "${YELLOW} %-15s | %-12s | %-12s | %-15s${NC}\n" "Username" "Password" "Status/Limit" "Expiry Date"
-    echo -e "${CYAN}-------------------------------------------------------------------------${NC}"
+    echo -e " ${CYAN}┌─────────────────┬──────────────┬─────────────────────┬─────────────────┐${NC}"
+    printf " ${CYAN}│${NC} ${YELLOW}%-15s${NC} ${CYAN}│${NC} ${YELLOW}%-12s${NC} ${CYAN}│${NC} ${YELLOW}%-19s${NC} ${CYAN}│${NC} ${YELLOW}%-15s${NC} ${CYAN}│${NC}\n" "Username" "Password" "Status/Limit" "Expiry Date"
+    echo -e " ${CYAN}├─────────────────┼──────────────┼─────────────────────┼─────────────────┤${NC}"
     if [ ! -s "$USER_DB" ]; then
-        echo -e "               ${RED}No created users found.${NC}"
+        printf " ${CYAN}│${NC} %-66s ${CYAN}│${NC}\n" "${RED}No created users found.${NC}"
     else
         while IFS=: read -r username pass_find; do
             if id "$username" &>/dev/null; then
                 exp_t=$(chage -l "$username" 2>/dev/null | grep "Account expires" | cut -d: -f2 | xargs)
                 [ -z "$exp_t" ] || [[ "$exp_t" == "never" ]] && exp_t="No Expiry"
                 
-                count_on=$(ps -u "$username" 2>/dev/null | grep -c sshd)
-                # Limit အား limits.conf ထဲမှ ပိုမိုတိကျစွာ ရှာဖွေခြင်း
+                count_on=$(ps aux | grep -i "sshd: $username" | grep -v grep | wc -l)
                 u_limit=$(grep -E "^$username[[:space:]]+hard[[:space:]]+maxlogins" /etc/security/limits.conf | awk '{print $4}' | head -n 1)
                 [ -z "$u_limit" ] && u_limit="1"
 
@@ -160,11 +182,11 @@ display_user_table() {
                 else
                     stat_print="${RED}Offline${NC}"
                 fi
-                printf " %-15s | %-12s | %-21b | %-15s\n" "$username" "$pass_find" "$stat_print" "$exp_t"
+                printf " ${CYAN}│${NC} %-15s ${CYAN}│${NC} %-12s ${CYAN}│${NC} %-28b ${CYAN}│${NC} %-15s ${CYAN}│${NC}\n" "$username" "$pass_find" "$stat_print" "$exp_t"
             fi
         done < "$USER_DB"
     fi
-    echo -e "${CYAN}=========================================================================${NC}"
+    echo -e " ${CYAN}└─────────────────┴──────────────┴─────────────────────┴─────────────────┘${NC}"
 }
 
 while true; do
@@ -177,10 +199,10 @@ while true; do
     echo -e " ${YELLOW}[05]${NC} CHANGE USERNAME      ${YELLOW}[11]${NC} ${RED}REINSTALL UBUNTU 20${NC}"
     echo -e " ${YELLOW}[06]${NC} CHANGE PASSWORD      ${YELLOW}[00]${NC} EXIT"
     echo ""
-    read -p " ◇ Select Option: " opt
+    read -t 5 -p " ◇ Select Option: " opt
     case $opt in
         1|01) while true; do clear; echo -e "${CYAN}--- CREATE NEW USER ---${NC}"; read -p "Username: " user; id "$user" &>/dev/null && echo -e "${RED}Already!${NC}" && sleep 1 && continue; read -p "Password: " pass; read -p "Days: " days; read -p "Limit: " user_limit; exp_date=$(date -d "+$days days" +"%Y-%m-%d"); useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd; sed -i "/$user hard maxlogins/d" /etc/security/limits.conf; echo "$user hard maxlogins $user_limit" >> /etc/security/limits.conf; echo "$user:$pass" >> "$USER_DB"; show_details; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
-        2|02) while true; do user="test_$(head /dev/urandom | tr -dc 0-9 | head -c 4)"; pass="123"; user_limit="1"; exp_date=$(date -d "+1 days" +"%Y-%m-%d"); useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd; echo "$user hard maxlogins 1" >> /etc/security/limits.conf; echo "$user:$pass" >> "$USER_DB"; show_details; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
+        2|02) while true; do user="test_$(head /dev/urandom | tr -dc 0-9 | head -c 4)"; pass="123"; user_limit="1"; exp_date=$(date -d "+1 days" +"%Y-%m-%d"); useradd -e $exp_date -M -s /bin/false $user; echo "$user:$pass" | chpasswd; sed -i "/$user hard maxlogins/d" /etc/security/limits.conf; echo "$user hard maxlogins 1" >> /etc/security/limits.conf; echo "$user:$pass" >> "$USER_DB"; show_details; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
         3|03) while true; do display_user_table; echo -e " [1] Remove Name [2] Remove ALL"; read -p " Select: " rm_opt; if [[ "$rm_opt" == "1" ]]; then read -p " Name: " user; userdel -f "$user" && sed -i "/^$user:/d" "$USER_DB" && sed -i "/$user hard maxlogins/d" /etc/security/limits.conf && echo -e "${GREEN}Deleted!${NC}"; elif [[ "$rm_opt" == "2" ]]; then read -p " Confirm Delete ALL? (y/n): " confirm; [[ "$confirm" == "y" ]] && while IFS=: read -r u p; do userdel -f "$u" &>/dev/null; sed -i "/$u hard maxlogins/d" /etc/security/limits.conf; done < "$USER_DB" && > "$USER_DB" && echo -e "${GREEN}All cleared!${NC}"; fi; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
         4|04) while true; do display_user_table; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
         5|05) while true; do display_user_table; read -p "Old Name: " old_u; [ -z "$old_u" ] && break; if ! id "$old_u" &>/dev/null; then echo -e "${RED}User not found!${NC}"; sleep 1; continue; fi; read -p "New Name: " new_u; [ -z "$new_u" ] && continue; if id "$new_u" &>/dev/null; then echo -e "${RED}New name already exists!${NC}"; sleep 1; continue; fi; pkill -u "$old_u" &>/dev/null; sleep 0.5; usermod -l "$new_u" "$old_u" && groupmod -n "$new_u" "$old_u" &>/dev/null; sed -i "s/^$old_u:/$new_u:/" "$USER_DB"; sed -i "s/$old_u hard/$new_u hard/" /etc/security/limits.conf; echo -e "${GREEN}Username changed successfully!${NC}"; echo ""; read -p " ◇ Return to Menu (m) or Continue (c)?: " nav; [[ "$nav" != "c" ]] && break; done ;;
