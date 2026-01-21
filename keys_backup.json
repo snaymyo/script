@@ -1,17 +1,8 @@
 {
     "SYNC-DA525574": {
         "username": "Atom",
-        "password": "External-User",
-        "expiry": "2026-05-01",
-        "limit": 1,
-        "online_count": 0,
-        "status": "Offline",
-        "hwid": null
-    },
-    "EVT-8409DD39": {
-        "username": "A",
         "password": "Abc12345",
-        "expiry": "2026-02-20",
+        "expiry": "2026-05-01",
         "limit": 1,
         "online_count": 0,
         "status": "Offline",
