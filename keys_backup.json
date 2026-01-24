@@ -1,18 +1,19 @@
 {
-    "SYNC-DA525574": {
-        "username": "Atom",
-        "password": "Abc12345",
-        "expiry": "2026-05-01",
-        "limit": "1",
-        "online_count": 0,
-        "status": "Offline",
-        "hwid": null
-    },
-    "EVT-2058EDBF": {
+    "SYNC-6195C07D": {
         "username": "yehtike",
         "password": "245163",
         "expiry": "2026-02-22",
-        "limit": 1,
+        "limit": 2,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 2"
+    },
+    "EVT-08988257": {
+        "username": "A",
+        "password": "abc",
+        "expiry": "2026-02-23",
+        "limit": "1",
         "online_count": 0,
         "status": "Offline",
         "hwid": null
