@@ -129,4 +129,99 @@
         "hwid": null,
         "device_status": "0 / 1"
     }
+}        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-F54DB22D": {
+        "username": "test_5786",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-2EF448B5": {
+        "username": "test_4954",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-56E724D0": {
+        "username": "test_5372",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-8700A3DB": {
+        "username": "test_6464",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-2F473776": {
+        "username": "test_1789",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-8DDD657A": {
+        "username": "test_1906",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-4184DA78": {
+        "username": "test_8910",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-9C5E1A81": {
+        "username": "test_3327",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-53E70EB2": {
+        "username": "test_0338",
+        "password": "123",
+        "expiry": "2026-01-25",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    }
 }
