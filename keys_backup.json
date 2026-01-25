@@ -19,22 +19,37 @@
         "hwid": null,
         "device_status": "0 / 1"
     },
-    "SYNC-77DD8668": {
-        "username": "test_7652",
-        "password": "123",
-        "expiry": "2026-01-25",
+    "EVT-489A3E73": {
+        "username": "Hhjj",
+        "password": "Jkko",
+        "expiry": "2026-02-24",
         "limit": 1,
         "online_count": 0,
         "status": "Offline",
         "hwid": null,
         "device_status": "0 / 1"
     },
-    "SYNC-268B1962": {
-        "username": "test_4895",
+    "SYNC-4B4A69C9": {
+        "username": "test_0123",
         "password": "123",
-        "expiry": "2026-01-25",
+        "expiry": "2026-01-26",
         "limit": 1,
         "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    },
+    "SYNC-3EE6A738": {
+        "username": "test_3839",
+        "password": "123",
+        "expiry": "2026-01-26",
+        "limit": 1,
+        "online_count": 0,
+        "status": "Offline",
+        "hwid": null,
+        "device_status": "0 / 1"
+    }
+}        "online_count": 0,
         "status": "Offline",
         "hwid": null,
         "device_status": "0 / 1"
